@@ -1,0 +1,6 @@
+{
+  "name": "ASELCO Bill Pay",
+  "description": "ASELCO electric bill payment app supporting GCash & Maya via PayMongo integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
