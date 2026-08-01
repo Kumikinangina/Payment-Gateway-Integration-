@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import QrScannerModal from "@/components/QrScannerModal";
 import {
   Zap,
   ShieldCheck,
@@ -20,8 +22,14 @@ import {
   Info,
   Check,
   X,
-  AlertCircle
+  AlertCircle,
+  QrCode,
+  Camera,
+  Copy,
+  Sparkles
 } from "lucide-react";
+
+export const dynamic = "force-dynamic";
 
 type PaymentMethod = "gcash" | "paymaya";
 
@@ -51,7 +59,9 @@ const SAVED_ACCOUNTS: SavedAccount[] = [
   { title: "Farm Meter (Prosperidad)", accountNumber: "09-1102-4491", accountName: "Juan Dela Cruz", defaultAmount: 980.00 },
 ];
 
-export default function AselcoPayApp() {
+function AselcoPayAppContent() {
+  const searchParams = useSearchParams();
+
   // Form State
   const [accountNumber, setAccountNumber] = useState("12-8849-2015");
   const [accountName, setAccountName] = useState("Maria Clara Santos");
@@ -74,6 +84,50 @@ export default function AselcoPayApp() {
     isSimulated: boolean;
   } | null>(null);
 
+  // QR Scanner & Toast State
+  const [qrScannerMode, setQrScannerMode] = useState<"bill" | "gcash" | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => setToastMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
+  const handleScanSuccess = (data: {
+    accountNumber?: string;
+    accountName?: string;
+    amount?: string;
+    rawText: string;
+    gcashUrl?: string;
+  }) => {
+    setQrScannerMode(null);
+
+    if (qrScannerMode === "bill" || data.accountNumber || data.amount) {
+      if (data.accountNumber) setAccountNumber(data.accountNumber);
+      if (data.accountName) setAccountName(data.accountName);
+      if (data.amount) setAmount(data.amount);
+      setErrors({});
+      setToastMessage(
+        `📷 QR Scanned! Loaded Account #${data.accountNumber || accountNumber}`
+      );
+    } else if (data.gcashUrl) {
+      setToastMessage(`📷 GCash QR Scanned! Destination link extracted.`);
+    } else {
+      setToastMessage(`📷 QR Code scanned: ${data.rawText.substring(0, 30)}...`);
+    }
+  };
+
+  const handleCopyLink = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    setToastMessage("📋 Direct GCash Payment Redirect URL copied to clipboard!");
+    setTimeout(() => setCopiedUrl(false), 3000);
+  };
+
   // History State
   const [history, setHistory] = useState<TransactionReceipt[]>([
     {
@@ -95,6 +149,40 @@ export default function AselcoPayApp() {
       status: "SUCCESSFUL",
     },
   ]);
+
+  // Handle return redirect from PayMongo portal
+  useEffect(() => {
+    const status = searchParams.get("status");
+    if (status === "success") {
+      const ref = searchParams.get("ref") || "ASELCO-PORTAL";
+      const acc = searchParams.get("account") || "12-8849-2015";
+      const nm = searchParams.get("name") || "Maria Clara Santos";
+      const amtVal = parseFloat(searchParams.get("amount") || "1850.00") || 1850.0;
+      const pMethod = (searchParams.get("method") as PaymentMethod) || "gcash";
+
+      const portalReceipt: TransactionReceipt = {
+        transactionId: `PAYMONGO-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        referenceNumber: ref,
+        accountNumber: acc,
+        accountName: nm,
+        billAmount: amtVal,
+        serviceFee: 15.00,
+        totalPaid: amtVal + 15.00,
+        paymentMethod: pMethod,
+        timestamp: new Date().toLocaleString("en-PH", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        status: "SUCCESSFUL",
+      };
+
+      setActiveReceipt(portalReceipt);
+      setHistory((prev) => [portalReceipt, ...prev]);
+    }
+  }, [searchParams]);
 
   const SERVICE_FEE = 15.00;
   const numericAmount = parseFloat(amount) || 0;
@@ -206,6 +294,22 @@ export default function AselcoPayApp() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-start pb-12">
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed top-4 right-4 z-50 max-w-sm bg-blue-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-blue-700 flex items-center justify-between space-x-3 animate-slideIn">
+          <div className="flex items-center space-x-2 text-xs font-semibold">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-blue-200 hover:text-white p-0.5 rounded"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <header className="w-full bg-blue-900 text-white shadow-md">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -218,9 +322,16 @@ export default function AselcoPayApp() {
               <p className="text-xs text-blue-200">Agusan del Sur Electric Cooperative, Inc.</p>
             </div>
           </div>
-          <div className="hidden sm:flex items-center space-x-1 bg-blue-800/80 text-blue-100 px-3 py-1.5 rounded-full text-xs font-medium">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>PayMongo Secure E-Portal</span>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setQrScannerMode("bill")}
+              className="bg-amber-400 hover:bg-amber-300 text-blue-950 px-3.5 py-1.5 rounded-xl text-xs font-black shadow flex items-center space-x-1.5 transition"
+            >
+              <QrCode className="w-4 h-4" />
+              <span className="hidden sm:inline">Scan Bill QR</span>
+              <span className="sm:hidden">Scan</span>
+            </button>
           </div>
         </div>
       </header>
@@ -365,9 +476,19 @@ export default function AselcoPayApp() {
 
             {/* Payment Form Card */}
             <form onSubmit={handleCreateCheckout} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
-              <div className="flex items-center space-x-2 border-b border-slate-100 pb-3">
-                <Receipt className="w-5 h-5 text-blue-900" />
-                <h3 className="text-lg font-bold text-slate-900">Account Details</h3>
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center space-x-2">
+                  <Receipt className="w-5 h-5 text-blue-900" />
+                  <h3 className="text-lg font-bold text-slate-900">Account Details</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQrScannerMode("bill")}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+                >
+                  <Camera className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Scan Bill QR</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -674,34 +795,90 @@ export default function AselcoPayApp() {
                 </div>
               </div>
 
-              {/* Simulation Interactive Helper */}
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-left space-y-1 text-xs text-amber-900">
-                <div className="flex items-center space-x-1 font-bold text-amber-800">
-                  <Info className="w-4 h-4 text-amber-600" />
-                  <span>Vercel Prototype Testing Mode</span>
+              {/* GCash Payment QR Code & Redirect Link Section */}
+              <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-4 space-y-3 text-center">
+                <div className="flex items-center justify-center space-x-1.5 text-blue-950 font-bold text-xs">
+                  <QrCode className="w-4 h-4 text-blue-600" />
+                  <span>Scan GCash Payment QR or Copy Redirect Link</span>
                 </div>
-                <p className="text-[11px] text-amber-700">
-                  Click the button below to complete payment and instantly generate your official ASELCO e-Receipt.
+
+                {/* Generated QR Code */}
+                <div className="bg-white p-3 rounded-xl border border-blue-200 shadow-sm w-40 h-40 mx-auto flex items-center justify-center relative">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                      sessionData.checkoutUrl.startsWith("http")
+                        ? sessionData.checkoutUrl
+                        : `${typeof window !== "undefined" ? window.location.origin : ""}${sessionData.checkoutUrl}`
+                    )}`}
+                    alt="GCash Payment QR Code"
+                    className="w-36 h-36 object-contain"
+                  />
+                </div>
+                <p className="text-[11px] text-blue-800 font-medium">
+                  Scan with your GCash app camera to open direct payment portal
                 </p>
+
+                {/* Direct Redirect URL Box */}
+                <div className="space-y-1.5 pt-1 text-left">
+                  <label className="text-[11px] font-bold text-slate-700 flex items-center justify-between">
+                    <span>Sender Payment Redirect URL:</span>
+                    <span className="text-[10px] text-blue-600 font-bold">PayMongo Gateway</span>
+                  </label>
+                  <div className="flex items-center space-x-1.5">
+                    <input
+                      type="text"
+                      readOnly
+                      value={
+                        sessionData.checkoutUrl.startsWith("http")
+                          ? sessionData.checkoutUrl
+                          : `${typeof window !== "undefined" ? window.location.origin : ""}${sessionData.checkoutUrl}`
+                      }
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-[11px] font-mono text-slate-700 select-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCopyLink(
+                          sessionData.checkoutUrl.startsWith("http")
+                            ? sessionData.checkoutUrl
+                            : `${window.location.origin}${sessionData.checkoutUrl}`
+                        )
+                      }
+                      className="px-2.5 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold shrink-0 flex items-center space-x-1 transition"
+                    >
+                      {copiedUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedUrl ? "Copied!" : "Copy"}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Action Buttons */}
               <div className="space-y-2 pt-2">
-                <button
-                  onClick={handleCompletePayment}
+                <a
+                  href={sessionData.checkoutUrl}
+                  target="_self"
                   className={`w-full py-3.5 px-4 rounded-xl text-white font-extrabold text-sm flex items-center justify-center space-x-2 shadow transition ${
                     paymentMethod === "gcash"
                       ? "bg-blue-600 hover:bg-blue-700"
                       : "bg-emerald-600 hover:bg-emerald-700"
                   }`}
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Simulate {paymentMethod === "gcash" ? "GCash" : "Maya"} Payment Success</span>
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Open Direct {paymentMethod === "gcash" ? "GCash" : "Maya"} Redirect Link</span>
+                </a>
+
+                <button
+                  onClick={handleCompletePayment}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center space-x-1.5 transition"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Instant Confirm & Issue Receipt (Demo Mode)</span>
                 </button>
 
                 <button
                   onClick={() => setShowCheckoutModal(false)}
-                  className="w-full py-2.5 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                  className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
                 >
                   Cancel Payment
                 </button>
@@ -710,6 +887,29 @@ export default function AselcoPayApp() {
           </div>
         </div>
       )}
+
+      {/* QR Code Scanner Modal */}
+      <QrScannerModal
+        isOpen={qrScannerMode !== null}
+        onClose={() => setQrScannerMode(null)}
+        mode={qrScannerMode || "bill"}
+        onScanSuccess={handleScanSuccess}
+      />
     </div>
+  );
+}
+
+export default function AselcoPayApp() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="flex items-center space-x-2 text-blue-900 font-bold text-sm">
+          <RefreshCw className="w-5 h-5 animate-spin" />
+          <span>Loading ASELCO E-Pay...</span>
+        </div>
+      </div>
+    }>
+      <AselcoPayAppContent />
+    </Suspense>
   );
 }
