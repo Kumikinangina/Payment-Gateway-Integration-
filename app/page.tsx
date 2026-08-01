@@ -455,7 +455,12 @@ function AselcoPayAppContent() {
 
             {/* Saved Accounts Quick Fill */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quick Fill Saved Meters</label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Quick Fill Saved Meters</label>
+                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                  Receiver: ASELCO Power
+                </span>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {SAVED_ACCOUNTS.map((acc, idx) => (
                   <button
@@ -468,7 +473,7 @@ function AselcoPayAppContent() {
                       <Building2 className="w-3.5 h-3.5 text-blue-600" />
                       <span>{acc.title}</span>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-1">Acc #{acc.accountNumber}</div>
+                    <div className="text-[11px] text-blue-900 font-mono font-bold mt-1">Meter Acc #{acc.accountNumber}</div>
                   </button>
                 ))}
               </div>
@@ -479,7 +484,10 @@ function AselcoPayAppContent() {
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <div className="flex items-center space-x-2">
                   <Receipt className="w-5 h-5 text-blue-900" />
-                  <h3 className="text-lg font-bold text-slate-900">Account Details</h3>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900">Electric Meter & Bill Details</h3>
+                    <p className="text-xs text-slate-500">Credited to ASELCO (Agusan del Sur Electric Cooperative)</p>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -494,9 +502,12 @@ function AselcoPayAppContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Account Number */}
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-slate-700 flex items-center space-x-1">
-                    <Hash className="w-3.5 h-3.5 text-blue-900" />
-                    <span>Account Number</span>
+                  <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span className="flex items-center space-x-1">
+                      <Hash className="w-3.5 h-3.5 text-blue-900" />
+                      <span>Meter Account Number</span>
+                    </span>
+                    <span className="text-[10px] text-blue-700 font-semibold">(On your electric bill)</span>
                   </label>
                   <input
                     type="text"
@@ -512,6 +523,9 @@ function AselcoPayAppContent() {
                         : "border-slate-300 focus:ring-blue-100 focus:border-blue-700"
                     }`}
                   />
+                  <p className="text-[11px] text-slate-500">
+                    Your consumer meter account ID (e.g. 12-8849-2015). Payment goes to ASELCO.
+                  </p>
                   {errors.accountNumber && (
                     <p className="text-xs text-red-500 font-medium flex items-center space-x-1 mt-1">
                       <AlertCircle className="w-3 h-3" />
