@@ -3,6 +3,8 @@
 import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import QrScannerModal from "@/components/QrScannerModal";
+import AselcoChatModal from "@/components/AselcoChatModal";
+import AselcoAgentDashboardModal from "@/components/AselcoAgentDashboardModal";
 import {
   Zap,
   ShieldCheck,
@@ -26,7 +28,10 @@ import {
   QrCode,
   Camera,
   Copy,
-  Sparkles
+  Sparkles,
+  Bot,
+  Headphones,
+  MessageSquare
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -88,6 +93,27 @@ function AselcoPayAppContent() {
   const [qrScannerMode, setQrScannerMode] = useState<"bill" | "gcash" | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
+
+  // AI Chat & Agent Dashboard State
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isAgentDashboardOpen, setIsAgentDashboardOpen] = useState(false);
+
+  const handlePayBillFromChat = (accNum: string, amt: string, accName: string) => {
+    setIsChatOpen(false);
+    setAccountNumber(accNum);
+    setAccountName(accName);
+    setAmount(amt);
+    setToastMessage(`⚡ Loaded Bill for Acc #${accNum} (₱${amt}). Click Pay Now below.`);
+  };
+
+  const handleViewReceiptFromChat = (refNumber: string) => {
+    setIsChatOpen(false);
+    const matched = history.find((h) => h.referenceNumber === refNumber) || history[0];
+    if (matched) {
+      setActiveReceipt(matched);
+      setToastMessage(`📄 Viewing Receipt ${matched.referenceNumber}`);
+    }
+  };
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -357,7 +383,7 @@ function AselcoPayAppContent() {
 
       {/* Top Header */}
       <header className="w-full bg-blue-900 text-white shadow-md">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center space-x-3">
             <div className="bg-amber-400 text-blue-950 p-2 rounded-xl shadow">
               <Zap className="w-6 h-6 fill-current" />
@@ -367,15 +393,33 @@ function AselcoPayAppContent() {
               <p className="text-xs text-blue-200">Agusan del Sur Electric Cooperative, Inc.</p>
             </div>
           </div>
+
           <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setIsChatOpen(true)}
+              className="bg-blue-800 hover:bg-blue-700 text-amber-300 border border-blue-700 px-3 py-1.5 rounded-xl text-xs font-bold shadow flex items-center space-x-1.5 transition"
+            >
+              <Bot className="w-4 h-4 text-amber-400" />
+              <span>AI Assistant</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsAgentDashboardOpen(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold shadow flex items-center space-x-1.5 transition"
+            >
+              <Headphones className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Agent Portal</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setQrScannerMode("bill")}
               className="bg-amber-400 hover:bg-amber-300 text-blue-950 px-3.5 py-1.5 rounded-xl text-xs font-black shadow flex items-center space-x-1.5 transition"
             >
               <QrCode className="w-4 h-4" />
-              <span className="hidden sm:inline">Scan Bill QR</span>
-              <span className="sm:hidden">Scan</span>
+              <span className="hidden sm:inline">Scan QR</span>
             </button>
           </div>
         </div>
@@ -962,12 +1006,43 @@ function AselcoPayAppContent() {
         </div>
       )}
 
+      {/* Floating AI Assistant Action Trigger */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="bg-blue-900 hover:bg-blue-800 text-white p-3.5 sm:px-4 sm:py-3 rounded-full shadow-2xl border-2 border-amber-400 flex items-center space-x-2 transition transform hover:scale-105 group"
+        >
+          <div className="relative">
+            <Bot className="w-6 h-6 text-amber-400" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-500 rounded-full border-2 border-blue-900 animate-ping"></span>
+          </div>
+          <span className="font-extrabold text-xs hidden sm:inline text-amber-300">
+            ASelco AI Assistant
+          </span>
+        </button>
+      </div>
+
       {/* QR Code Scanner Modal */}
       <QrScannerModal
         isOpen={qrScannerMode !== null}
         onClose={() => setQrScannerMode(null)}
         mode={qrScannerMode || "bill"}
         onScanSuccess={handleScanSuccess}
+      />
+
+      {/* ASelco AI & Consumer Chat Modal */}
+      <AselcoChatModal
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        defaultAccountNumber={accountNumber}
+        onPayBillFromChat={handlePayBillFromChat}
+        onViewReceiptFromChat={handleViewReceiptFromChat}
+      />
+
+      {/* ASelco Agent Support Operations Dashboard Modal */}
+      <AselcoAgentDashboardModal
+        isOpen={isAgentDashboardOpen}
+        onClose={() => setIsAgentDashboardOpen(false)}
       />
     </div>
   );
