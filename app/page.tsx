@@ -150,37 +150,82 @@ function AselcoPayAppContent() {
     },
   ]);
 
-  // Handle return redirect from PayMongo portal
+  const [isLookingUpDb, setIsLookingUpDb] = useState(false);
+
+  // Inquire live account balance from ASELCO Database
+  const handleDatabaseInquiry = async (accountToLookup?: string) => {
+    const acc = accountToLookup || accountNumber;
+    if (!acc.trim()) {
+      setErrors((prev) => ({ ...prev, accountNumber: "Please enter an Account Number to query ASELCO DB" }));
+      return;
+    }
+
+    setIsLookingUpDb(true);
+    try {
+      const res = await fetch(`/api/aselco/lookup?accountNumber=${encodeURIComponent(acc.trim())}`);
+      const result = await res.json();
+
+      if (res.ok && result.found && result.data) {
+        setAccountNumber(result.data.accountNumber);
+        setAccountName(result.data.accountName);
+        setAmount(result.data.amountDue.toFixed(2));
+        setErrors({});
+        setToastMessage(
+          `⚡ ASELCO Database Match: ${result.data.accountName} • ₱${result.data.amountDue.toFixed(2)} due`
+        );
+      } else {
+        setToastMessage("⚠️ Meter account not found in ASELCO Central DB.");
+      }
+    } catch (err) {
+      console.error("ASELCO DB lookup error:", err);
+      setToastMessage("Failed to connect to ASELCO Database.");
+    } finally {
+      setIsLookingUpDb(false);
+    }
+  };
+
+  // Handle return redirect from PayMongo portal and verify via Webhook API
   useEffect(() => {
     const status = searchParams.get("status");
-    if (status === "success") {
+    const session = searchParams.get("session");
+
+    if (status === "success" && session) {
       const ref = searchParams.get("ref") || "ASELCO-PORTAL";
       const acc = searchParams.get("account") || "12-8849-2015";
       const nm = searchParams.get("name") || "Maria Clara Santos";
       const amtVal = parseFloat(searchParams.get("amount") || "1850.00") || 1850.0;
       const pMethod = (searchParams.get("method") as PaymentMethod) || "gcash";
 
-      const portalReceipt: TransactionReceipt = {
-        transactionId: `PAYMONGO-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-        referenceNumber: ref,
-        accountNumber: acc,
-        accountName: nm,
-        billAmount: amtVal,
-        serviceFee: 15.00,
-        totalPaid: amtVal + 15.00,
-        paymentMethod: pMethod,
-        timestamp: new Date().toLocaleString("en-PH", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        status: "SUCCESSFUL",
-      };
+      // Verify payment status against PayMongo Webhook records
+      fetch(`/api/paymongo/verify?session=${session}`)
+        .then((res) => res.json())
+        .then((verData) => {
+          if (verData.verified) {
+            const portalReceipt: TransactionReceipt = {
+              transactionId: `PAYMONGO-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+              referenceNumber: ref,
+              accountNumber: acc,
+              accountName: nm,
+              billAmount: amtVal,
+              serviceFee: 15.00,
+              totalPaid: amtVal + 15.00,
+              paymentMethod: pMethod,
+              timestamp: new Date().toLocaleString("en-PH", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              status: "SUCCESSFUL",
+            };
 
-      setActiveReceipt(portalReceipt);
-      setHistory((prev) => [portalReceipt, ...prev]);
+            setActiveReceipt(portalReceipt);
+            setHistory((prev) => [portalReceipt, ...prev]);
+            setToastMessage("✅ Webhook Verified! Payment marked as PAID.");
+          }
+        })
+        .catch((err) => console.error("Webhook verification error:", err));
     }
   }, [searchParams]);
 
@@ -509,20 +554,35 @@ function AselcoPayAppContent() {
                     </span>
                     <span className="text-[10px] text-blue-700 font-semibold">(On your electric bill)</span>
                   </label>
-                  <input
-                    type="text"
-                    value={accountNumber}
-                    onChange={(e) => {
-                      setAccountNumber(e.target.value);
-                      if (errors.accountNumber) setErrors({ ...errors, accountNumber: "" });
-                    }}
-                    placeholder="e.g. 12-8849-2015"
-                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-medium focus:outline-none focus:ring-2 ${
-                      errors.accountNumber
-                        ? "border-red-400 focus:ring-red-200 bg-red-50/50"
-                        : "border-slate-300 focus:ring-blue-100 focus:border-blue-700"
-                    }`}
-                  />
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={accountNumber}
+                      onChange={(e) => {
+                        setAccountNumber(e.target.value);
+                        if (errors.accountNumber) setErrors({ ...errors, accountNumber: "" });
+                      }}
+                      placeholder="e.g. 12-8849-2015"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm font-medium focus:outline-none focus:ring-2 ${
+                        errors.accountNumber
+                          ? "border-red-400 focus:ring-red-200 bg-red-50/50"
+                          : "border-slate-300 focus:ring-blue-100 focus:border-blue-700"
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleDatabaseInquiry()}
+                      disabled={isLookingUpDb}
+                      className="px-3 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shrink-0 flex items-center space-x-1 transition shadow-sm"
+                    >
+                      {isLookingUpDb ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      )}
+                      <span>Inquire DB</span>
+                    </button>
+                  </div>
                   <p className="text-[11px] text-slate-500">
                     Your consumer meter account ID (e.g. 12-8849-2015). Payment goes to ASELCO.
                   </p>

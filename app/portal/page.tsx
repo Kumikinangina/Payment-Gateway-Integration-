@@ -32,14 +32,39 @@ function PortalContent() {
     setStep("otp");
   };
 
-  const handleVerifyOtp = (e: React.FormEvent) => {
+  const handleAuthorizeGCash = async (e: React.FormEvent) => {
     e.preventDefault();
     setStep("processing");
+
+    // Trigger backend Webhook event to mark payment = PAID
+    try {
+      await fetch("/api/paymongo/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventType: "checkout_session.payment.paid",
+          data: {
+            attributes: {
+              type: "checkout_session.payment.paid",
+              data: { id: session },
+            },
+          },
+          sessionId: session,
+        }),
+      });
+    } catch (err) {
+      console.warn("Webhook notification trigger error:", err);
+    }
+
     setTimeout(() => {
       setStep("success");
       setTimeout(() => {
         // Redirect back home with URL query params
-        router.push(`/?status=success&session=${session}&ref=${ref}&account=${encodeURIComponent(account)}&name=${encodeURIComponent(name)}&amount=${amount}&method=${method}`);
+        router.push(
+          `/?status=success&session=${session}&ref=${ref}&account=${encodeURIComponent(
+            account
+          )}&name=${encodeURIComponent(name)}&amount=${amount}&method=${method}`
+        );
       }, 1500);
     }, 2000);
   };
@@ -120,7 +145,7 @@ function PortalContent() {
           )}
 
           {step === "otp" && (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
+            <form onSubmit={handleAuthorizeGCash} className="space-y-4">
               <div className="text-center space-y-1">
                 <h3 className="font-bold text-slate-900 text-lg">Enter 6-Digit OTP</h3>
                 <p className="text-xs text-slate-500">
