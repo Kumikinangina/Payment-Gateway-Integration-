@@ -7,11 +7,77 @@ import {
   ChatMessage,
   AgentTicket,
 } from "@/lib/aselcoStore";
-import { paymentSessionsStore } from "@/lib/paymentStore";
 
-// Initialize Gemini API client if API key exists
-const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+// Helper function to call Gemini AI with robust model fallbacks
+async function getGeminiResponse(
+  userMessage: string,
+  systemInstruction: string
+): Promise<string | null> {
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+
+  if (!apiKey) {
+    console.warn("No Gemini API key found in environment variables.");
+    return null;
+  }
+
+  // 1. Try GoogleGenAI SDK with standard supported model names
+  const modelsToTry = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+  
+  try {
+    const aiClient = new GoogleGenAI({ apiKey });
+    for (const model of modelsToTry) {
+      try {
+        const response = await aiClient.models.generateContent({
+          model,
+          contents: userMessage,
+          config: {
+            systemInstruction,
+            temperature: 0.7,
+            maxOutputTokens: 600,
+          },
+        });
+        if (response.text && response.text.trim()) {
+          return response.text.trim();
+        }
+      } catch (err: any) {
+        console.warn(`Gemini SDK model [${model}] error:`, err?.message || err);
+      }
+    }
+  } catch (sdkErr: any) {
+    console.warn("GoogleGenAI SDK initialization failed:", sdkErr);
+  }
+
+  // 2. Direct REST API fallback if SDK calls fail or throw model errors
+  for (const model of ["gemini-2.0-flash", "gemini-1.5-flash"]) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents: [{ parts: [{ text: userMessage }] }],
+          }),
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && text.trim()) return text.trim();
+      }
+    } catch (restErr: any) {
+      console.warn(`Gemini REST model [${model}] error:`, restErr);
+    }
+  }
+
+  return null;
+}
 
 export async function POST(request: Request) {
   try {
@@ -38,10 +104,9 @@ export async function POST(request: Request) {
       disconnectionNotice: false,
     };
 
-    // Check if there is an active agent ticket
+    // Check if there is an active agent ticket session
     if (ticketId && AGENT_TICKETS_STORE[ticketId]) {
       const activeTicket = AGENT_TICKETS_STORE[ticketId];
-      // Append user message
       const userMsgObj: ChatMessage = {
         id: `msg_${Date.now()}`,
         ticketId,
@@ -61,15 +126,19 @@ export async function POST(request: Request) {
       }
     }
 
-    // 1. Human Agent Request
-    if (
-      cleanMsg.includes("agent") ||
-      cleanMsg.includes("human") ||
-      cleanMsg.includes("representative") ||
-      cleanMsg.includes("talk to an agent") ||
-      cleanMsg.includes("contact aselco agent") ||
-      cleanMsg.includes("dispute")
-    ) {
+    // 1. Explicit Live Human Agent Escalation Triggers ONLY
+    const explicitAgentRequests = [
+      "contact aselco agent",
+      "talk to an agent",
+      "talk to agent",
+      "speak to human agent",
+      "talk to a human",
+      "request live agent",
+      "connect to agent",
+      "human agent support",
+    ];
+
+    if (explicitAgentRequests.includes(cleanMsg)) {
       const newTicketId = ticketId || `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
 
       const newTicket: AgentTicket = {
@@ -111,7 +180,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 2. View Electric Bill Card (Explicit Card Trigger)
+    // 2. Explicit View Electric Bill Card Trigger
     if (
       cleanMsg === "view my electric bill" ||
       cleanMsg === "check amount due" ||
@@ -130,7 +199,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // 3. Payment History (Explicit Card Trigger)
+    // 3. Explicit Payment History Card Trigger
     if (
       cleanMsg === "show my payment history" ||
       cleanMsg === "payment history" ||
@@ -171,11 +240,10 @@ export async function POST(request: Request) {
       });
     }
 
-    // 4. Electrical Problem / Power Outage Report Trigger
+    // 4. Explicit Report Electrical Problem Card Trigger
     if (
       cleanMsg === "report an electrical problem" ||
-      cleanMsg.includes("outage hazard") ||
-      cleanMsg.includes("sparking wire")
+      cleanMsg === "report power outage"
     ) {
       const reportId = `SR-${Math.floor(1000 + Math.random() * 9000)}`;
       const newReport = {
@@ -201,80 +269,62 @@ export async function POST(request: Request) {
       });
     }
 
-    // 5. Dynamic AI Generation via Gemini AI for ALL User Queries
-    let aiGeneratedReply = "";
+    // 5. Dynamic AI Generation via Gemini AI for ALL Custom User Questions
+    const systemInstruction = `
+You are the official, friendly, and highly intelligent AI Customer Assistant for ASELCO (Agusan del Sur Electric Cooperative, Inc.).
+Your primary role is to interact naturally with consumers in Agusan del Sur, answering their questions accurately and thoughtfully regarding electricity billing, rates, power outages, area offices, payment channels, disconnection policies, senior citizen discounts, net metering, and safety tips.
 
-    if (ai) {
-      try {
-        const systemInstruction = `
-You are the official, friendly, and highly knowledgeable AI Assistant for ASELCO (Agusan del Sur Electric Cooperative, Inc.).
-Your goal is to help consumers in Agusan del Sur with electricity billing, account inquiries, payment options, power outages, area office locations, disconnection notices, and energy conservation tips.
-
-Current Consumer Context:
+CONSUMER & ACCOUNT CONTEXT:
 - Account Number: ${currentAccount.accountNumber}
-- Account Name: ${currentAccount.accountName}
+- Consumer Name: ${currentAccount.accountName}
 - Meter Number: ${currentAccount.meterNumber}
-- Address: ${currentAccount.address}
-- Billing Period: ${currentAccount.billingPeriod}
+- Service Address: ${currentAccount.address}
+- Current Billing Period: ${currentAccount.billingPeriod}
 - Consumption: ${currentAccount.kwhConsumed} kWh
-- Amount Due: ₱${currentAccount.amountDue.toFixed(2)}
-- Due Date: ${currentAccount.dueDate}
-- Payment Status: ${currentAccount.status}
-- Disconnection Notice Active: ${currentAccount.disconnectionNotice ? "YES (Priority Warning)" : "NO"}
+- Total Amount Due: ₱${currentAccount.amountDue.toFixed(2)}
+- Payment Due Date: ${currentAccount.dueDate}
+- Account Status: ${currentAccount.status}
+- Disconnection Notice: ${currentAccount.disconnectionNotice ? "ACTIVE WARNING (Requires Immediate Payment)" : "None"}
 
-ASELCO Area Offices & Coverage:
+ASELCO AREA OFFICES & COVERAGE:
 1. Bayugan Area Office: Serves Bayugan City and Esperanza.
-2. San Francisco Area Office: Serves San Francisco and nearby towns like Rosario.
-3. Talacogon Area Office: Serves Talacogon and surrounding communities.
-4. Trento Area Office: Serves Trento, Santa Josefa, and neighboring southern areas.
+2. San Francisco Area Office: Serves San Francisco, Rosario, and nearby barangays.
+3. Talacogon Area Office: Serves Talacogon, La Paz, and surrounding river towns.
+4. Trento Area Office: Serves Trento, Santa Josefa, Veruela, and southern Agusan del Sur.
 
-ASELCO App Features:
-- Direct GCash & PayMongo online payment integration
-- QR Ph Code Scanner for reading bill statements
-- Real-time Field Outage & Maintenance dispatch reporting
-- Live Human Agent Escalation
+ASELCO ONLINE PAYMENT CHANNELS:
+- GCash & PayMongo (instant verification in app)
+- QR Ph Code Scanner (scan official bill QR code)
+- Major Banks & Over-the-counter Area Offices
 
-Instructions:
-- Provide a clear, natural, helpful, and concise response (1-3 paragraphs) tailored specifically to ASELCO and the user's query.
-- Use a polite, courteous, professional tone suitable for a Philippine electric cooperative customer service assistant.
-- Mention relevant account specifics or area office information if pertinent to their question.
-- Do NOT output robotic generic template text. Provide genuine, intelligent answers to the user's specific prompt.
+INSTRUCTIONS:
+- Directly answer the user's custom question or inquiry with relevant, accurate, and detailed information.
+- Speak in a warm, polite, professional, and helpful tone (Philippine English / conversational).
+- Do NOT output robotic or repetitive template greetings. Address the user's specific prompt directly.
+- If relevant, reference their account details or specific area office to make the response personalized.
 `;
 
-        const response = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: message,
-          config: {
-            systemInstruction,
-            temperature: 0.7,
-            maxOutputTokens: 500,
-          },
-        });
+    let aiReplyText = await getGeminiResponse(message, systemInstruction);
 
-        aiGeneratedReply = response.text || "";
-      } catch (genErr: any) {
-        console.warn("Gemini AI API call error, using contextual fallback:", genErr);
-      }
-    }
-
-    // Fallback contextual AI response if Gemini API key is not configured or fails
-    if (!aiGeneratedReply) {
-      if (cleanMsg.includes("office") || cleanMsg.includes("location") || cleanMsg.includes("where")) {
-        aiGeneratedReply = `ASELCO operates four main Area Offices across Agusan del Sur:\n\n• Bayugan Area Office: Serves Bayugan City & Esperanza\n• San Francisco Area Office: Serves San Francisco & Rosario\n• Talacogon Area Office: Serves Talacogon & surrounding areas\n• Trento Area Office: Serves Trento, Santa Josefa, & southern municipalities\n\nYour account (#${currentAccNum}) is registered under ${currentAccount.address}.`;
-      } else if (cleanMsg.includes("pay") || cleanMsg.includes("gcash") || cleanMsg.includes("qr") || cleanMsg.includes("online")) {
-        aiGeneratedReply = `You can easily pay your ASELCO electric bill for Account #${currentAccNum} (₱${currentAccount.amountDue.toFixed(2)}) using our online payment system:\n\n1. Click "View My Electric Bill" or "Pay Bill" in the app.\n2. Select GCash, Credit/Debit Card, or Scan Bill QR Ph Code.\n3. Complete payment to receive an instant official digital receipt.`;
+    // Fallback if Gemini API key is missing or calls failed
+    if (!aiReplyText) {
+      if (cleanMsg.includes("office") || cleanMsg.includes("location") || cleanMsg.includes("where") || cleanMsg.includes("address")) {
+        aiReplyText = `ASELCO operates four main Area Offices across Agusan del Sur:\n\n• Bayugan Area Office: Serves Bayugan City & Esperanza\n• San Francisco Area Office: Serves San Francisco & Rosario\n• Talacogon Area Office: Serves Talacogon & surrounding towns\n• Trento Area Office: Serves Trento, Santa Josefa, & southern areas\n\nYour account (#${currentAccNum}) is served by the ${currentAccount.address}.`;
+      } else if (cleanMsg.includes("pay") || cleanMsg.includes("gcash") || cleanMsg.includes("qr") || cleanMsg.includes("online") || cleanMsg.includes("bank")) {
+        aiReplyText = `You can settle your electric bill for Account #${currentAccNum} (Amount Due: ₱${currentAccount.amountDue.toFixed(2)}) conveniently online:\n\n1. Select "Pay Bill via GCash" or click "View My Electric Bill".\n2. Pay via GCash, Credit/Debit Card, or Scan Bill QR Ph Code.\n3. An official ASELCO e-receipt is generated immediately.`;
       } else if (cleanMsg.includes("disconnect") || cleanMsg.includes("notice") || cleanMsg.includes("cut")) {
-        aiGeneratedReply = `Regarding Disconnection Notices for Account #${currentAccNum}:\n\n${
+        aiReplyText = `Regarding Disconnection Notices for Account #${currentAccNum}:\n\n${
           currentAccount.disconnectionNotice
-            ? "⚠️ Notice Active: Your account has an outstanding balance of ₱" + currentAccount.amountDue.toFixed(2) + " with an active disconnection notice. Please settle payment immediately via GCash or at any ASELCO Area Office to avoid power interruption."
+            ? "⚠️ Notice Active: Your account has an outstanding balance of ₱" + currentAccount.amountDue.toFixed(2) + ". Please settle payment immediately via GCash or at any ASELCO Area Office to avoid service interruption."
             : "✅ Status Clear: Account #" + currentAccNum + " currently has no active disconnection notices. Due date is " + currentAccount.dueDate + "."
         }`;
+      } else if (cleanMsg.includes("rate") || cleanMsg.includes("kwh") || cleanMsg.includes("high") || cleanMsg.includes("compute") || cleanMsg.includes("increase")) {
+        aiReplyText = `Your July 2026 electric consumption for Account #${currentAccNum} is ${currentAccount.kwhConsumed} kWh, totaling ₱${currentAccount.amountDue.toFixed(2)} (approx ₱10.00/kWh effective distribution rate). Rates may fluctuate slightly based on generation costs from WESM and power suppliers.`;
       } else {
-        aiGeneratedReply = `Hello ${currentAccount.accountName}! Thank you for reaching out to ASELCO Customer Care.\n\nRegarding your inquiry: "${message}"\n\nFor Account #${currentAccNum}, your current bill for ${currentAccount.billingPeriod} is ₱${currentAccount.amountDue.toFixed(2)} (${currentAccount.kwhConsumed} kWh consumed, Due: ${currentAccount.dueDate}). You can pay online via GCash/PayMongo, view your full bill, or request a live support agent if you need further assistance!`;
+        aiReplyText = `Thank you for your inquiry regarding: "${message}".\n\nFor Account #${currentAccNum} (${currentAccount.accountName}), your current bill for ${currentAccount.billingPeriod} is ₱${currentAccount.amountDue.toFixed(2)} (Due: ${currentAccount.dueDate}). If you have specific questions about rates, meter readings, or field service, feel free to ask or connect with an ASELCO specialist!`;
       }
     }
 
-    // Determine relevant quick actions based on user message
     const quickActions = [
       { label: "View My Electric Bill", action: "View My Electric Bill" },
       { label: "Pay Bill via GCash", action: "view my electric bill" },
@@ -283,7 +333,7 @@ Instructions:
     ];
 
     return NextResponse.json({
-      replyText: aiGeneratedReply,
+      replyText: aiReplyText,
       type: "text",
       quickActions,
     });
@@ -294,4 +344,5 @@ Instructions:
     );
   }
 }
+
 
