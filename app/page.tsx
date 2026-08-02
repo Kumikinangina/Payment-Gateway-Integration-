@@ -31,7 +31,8 @@ import {
   Sparkles,
   Bot,
   Headphones,
-  MessageSquare
+  MessageSquare,
+  MapPin
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,7 @@ type PaymentMethod = "gcash" | "paymaya";
 
 interface SavedAccount {
   title: string;
+  coverage: string;
   accountNumber: string;
   accountName: string;
   defaultAmount: number;
@@ -59,9 +61,34 @@ interface TransactionReceipt {
 }
 
 const SAVED_ACCOUNTS: SavedAccount[] = [
-  { title: "Home Meter (San Francisco)", accountNumber: "12-8849-2015", accountName: "Maria Clara Santos", defaultAmount: 1850.00 },
-  { title: "Store Meter (Bayugan)", accountNumber: "15-3029-8812", accountName: "Santos General Store", defaultAmount: 3420.75 },
-  { title: "Farm Meter (Prosperidad)", accountNumber: "09-1102-4491", accountName: "Juan Dela Cruz", defaultAmount: 980.00 },
+  {
+    title: "Bayugan Area Office",
+    coverage: "Serves Bayugan City and Esperanza",
+    accountNumber: "15-3029-8812",
+    accountName: "Santos General Store",
+    defaultAmount: 3420.75,
+  },
+  {
+    title: "San Francisco Area Office",
+    coverage: "Serves San Francisco and nearby towns like Rosario",
+    accountNumber: "12-8849-2015",
+    accountName: "Maria Clara Santos",
+    defaultAmount: 1850.00,
+  },
+  {
+    title: "Talacogon Area Office",
+    coverage: "Serves Talacogon and surrounding communities",
+    accountNumber: "09-1102-4491",
+    accountName: "Juan Dela Cruz",
+    defaultAmount: 980.00,
+  },
+  {
+    title: "Trento Area Office",
+    coverage: "Serves Trento, Santa Josefa, & neighboring southern areas",
+    accountNumber: "18-9901-4432",
+    accountName: "Elena Rostata",
+    defaultAmount: 2150.50,
+  },
 ];
 
 function AselcoPayAppContent() {
@@ -287,6 +314,7 @@ function AselcoPayAppContent() {
     setAccountName(acc.accountName);
     setAmount(acc.defaultAmount.toFixed(2));
     setErrors({});
+    setToastMessage(`⚡ Quick Filled: ${acc.title} (Acc #${acc.accountNumber})`);
   };
 
   const handleCreateCheckout = async (e: React.FormEvent) => {
@@ -542,27 +570,49 @@ function AselcoPayAppContent() {
               </div>
             </div>
 
-            {/* Saved Accounts Quick Fill */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-600 uppercase tracking-wider">Quick Fill Saved Meters</label>
-                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                  Receiver: ASELCO Power
+            {/* Saved Accounts Quick Fill: Coverage & Area Offices */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                <div>
+                  <label className="text-xs font-black text-blue-900 uppercase tracking-wider flex items-center space-x-1.5">
+                    <Building2 className="w-4 h-4 text-amber-500" />
+                    <span>ASELCO Area Offices & Coverage (Quick Fill Saved Meters)</span>
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Click any official ASELCO Area Office to quick-fill meter details for bill payment.
+                  </p>
+                </div>
+                <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200 shrink-0">
+                  4 Area Offices Active
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                 {SAVED_ACCOUNTS.map((acc, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => handleQuickSelect(acc)}
-                    className="p-3 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl text-left transition shadow-sm group"
+                    className="p-3 bg-slate-50 hover:bg-blue-50/90 border border-slate-200 hover:border-blue-400 rounded-xl text-left transition shadow-2xs group flex flex-col justify-between h-full space-y-2 cursor-pointer"
                   >
-                    <div className="flex items-center space-x-2 text-blue-900 font-bold text-xs group-hover:text-blue-700">
-                      <Building2 className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{acc.title}</span>
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-1.5 text-blue-950 font-black text-xs group-hover:text-blue-700">
+                        <MapPin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span>{acc.title}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 leading-snug">
+                        {acc.coverage}
+                      </p>
                     </div>
-                    <div className="text-[11px] text-blue-900 font-mono font-bold mt-1">Meter Acc #{acc.accountNumber}</div>
+
+                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+                      <span className="font-mono font-bold text-blue-900">
+                        Acc #{acc.accountNumber}
+                      </span>
+                      <span className="font-black text-emerald-700">
+                        ₱{acc.defaultAmount.toFixed(2)}
+                      </span>
+                    </div>
                   </button>
                 ))}
               </div>
